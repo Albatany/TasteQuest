@@ -1,0 +1,18 @@
+# target_cm measured_cm expected_score   ("-" = timeout tanpa lock)
+# Dibaca oleh shared/test/game.test.ts DAN firmware/test/test_logic.cpp agar skor identik lintas bahasa.
+20 20.0 100
+20 20.3 97
+20 19.7 97
+20 21.5 85
+30 25.0 50
+20 30.0 0
+20 35.0 0
+20 2.0 0
+10 10.1 99
+25 24.5 95
+18 18.4 96
+12 12.9 91
+30 29.9 99
+15 15.6 94
+22 21.1 91
+20 - 0
