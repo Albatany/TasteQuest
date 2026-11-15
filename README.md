@@ -1,13 +1,14 @@
 # TasteQuest v3
 
-**HMIF UNJA × FST MARKET DAY 2026 — PLAY. EXPLORE. RATE.**
+**HMIF UNJA × FST MARKET DAY 2026: PLAY. EXPLORE. RATE.**
+
 **© Muhammad Aziz Syah Dani 2026**
 
 Proyek IoT interaktif untuk stan pameran karya mata kuliah Informatika Universitas Jambi (stan tidak menjual makanan):
 
-- **ProxiRush** — permainan ketepatan jarak ultrasonik 3 ronde (HC-SR04 + pad sentuh TTP223 + OLED + buzzer).
-- **Exhibition Rating** — rating sukarela 1–5 bintang untuk karya, langsung di alat.
-- **Dashboard IoT real-time** — Overview, Arena, Leaderboard, Visitor Reviews, Device Monitor, Pengaturan, dan Kiosk layar penuh.
+- **ProxiRush**: permainan ketepatan jarak ultrasonik 3 ronde (HC-SR04 + pad sentuh TTP223 + OLED + buzzer).
+- **Exhibition Rating**: rating sukarela 1–5 bintang untuk karya, langsung di alat.
+- **Dashboard IoT real-time**: Overview, Arena, Leaderboard, Visitor Reviews, Device Monitor, Pengaturan, dan Kiosk layar penuh.
 
 Semua berjalan **lokal tanpa internet**: ESP8266 → HTTP → laptop (Express + SQLite) → Socket.IO → browser.
 
