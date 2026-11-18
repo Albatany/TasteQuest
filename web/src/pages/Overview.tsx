@@ -1,3 +1,4 @@
+import { ROUNDS } from '../../../shared/src/game.ts';
 import type { LeaderRow, Mode } from '../../../shared/src/schema.ts';
 import { Empty, ErrorBox, Icon, Loading, OnlineDot, Panel, Stars, Stat } from '../components/ui.tsx';
 import { ago, num1, playerName, timeWib, useApi } from '../lib/api.ts';
@@ -16,6 +17,7 @@ export interface OverviewData {
 const STATE_LABEL: Record<string, string> = {
   IDLE: 'Menunggu pengunjung', MENU: 'Di menu', READY: 'Siap mulai', COUNTDOWN: 'Hitung mundur', ROUND_ACTIVE: 'Ronde berjalan',
   ROUND_RESULT: 'Hasil ronde', GAME_RESULT: 'Skor akhir', RATING_OFFER: 'Tawaran rating', RATING: 'Memberi rating', THANK_YOU: 'Terima kasih',
+  RP_PRACTICE: 'Latihan ProxiRush',
 };
 export const stateLabel = (s: string | undefined) => (s ? STATE_LABEL[s] ?? s : 'tidak diketahui');
 
@@ -40,7 +42,7 @@ export function Overview() {
           value={data.avgStars === null ? <span className="font-sans text-2xl">Belum ada</span> : num1(data.avgStars)}
           hint={data.avgStars === null ? 'Belum ada rating' : <Stars value={data.avgStars} size="size-4" />}
         />
-        <Stat icon="crown" label="Skor tertinggi" value={best ? <>{best.totalScore}<span className="text-base text-ink-300">/300</span></> : <span className="font-sans text-2xl">Belum ada</span>} hint={best ? playerName(best) : 'Belum ada permainan'} />
+        <Stat icon="crown" label="Skor tertinggi" value={best ? <>{best.totalScore}<span className="text-base text-ink-300">/{ROUNDS * 100}</span></> : <span className="font-sans text-2xl">Belum ada</span>} hint={best ? playerName(best) : 'Belum ada permainan'} />
       </div>
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">

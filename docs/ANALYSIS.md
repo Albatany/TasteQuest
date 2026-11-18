@@ -8,7 +8,7 @@ TasteQuest mengukur dua hal berbeda: **ketepatan motorik** pengunjung (ProxiRush
 
 ## 2. Kekuatan desain
 
-- **Tidak ada jarak palsu.** Bila median sensor tidak valid (< 3 sampel valid dalam 400 ms), lock ditolak dengan pesan "Sensor tak terbaca"; ronde yang habis waktu bernilai 0 — diuji di TS dan C++.
+- **Tidak ada jarak palsu.** Bila median sensor tidak valid (< 3 sampel valid dalam 400 ms), lock ditolak dengan pesan "Sensor tak terbaca". Saat waktu habis jawaban terkunci otomatis dengan median 5 bacaan valid terakhir; ronde bernilai 0 bila sepanjang ronde tidak ada bacaan valid. Diuji di TS dan C++.
 - **Skor identik lintas bahasa.** Jarak dikuantisasi 0,1 cm; pada resolusi itu rumus spesifikasi `clamp(round(100 − |m−t|·10), 0, 100)` = `clamp(100 − |m₁₀ − 10t|, 0, 100)` tanpa ambiguitas pembulatan. File kasus yang sama (`shared/test/scoring_cases.txt`) diuji oleh Vitest dan g++. Server menghitung ulang dan menolak skor yang tidak sesuai rumus.
 - **Idempotensi.** Setiap event membawa ID unik `DEVICE-nonceBoot-seq`; retry tidak menambah record (diuji). Nonce boot dari RNG hardware mencegah tabrakan ID setelah restart.
 - **Pemisahan demo/live** pada level autentikasi (token perangkat vs sesi operator) dan identitas (`SIM-*`), bukan hanya label — diuji (403/409).
@@ -33,7 +33,7 @@ Resolusi datasheet ±0,3 cm ≈ ±3 poin. Telapak tangan adalah pemantul tidak r
 
 ### 3.3 Keadilan antar pemain
 - Galat **sistematis** berlaku sama untuk semua pemain dengan target yang sama → urutan relatif terjaga.
-- Target diacak per pemain (3 target berbeda dari rentang). Hipotesis "target jauh lebih sulit" (sudut pancar 15° → titik pantul ±8 cm di 30 cm) **belum didukung data**. Data per ronde (target, terukur, lock_ms) disimpan dan diekspor CSV, sehingga hipotesis ini bisa diuji setelah acara (mis. korelasi |galat| vs target). Bila terbukti, opsi perbaikan: target berstrata (satu dekat, satu sedang, satu jauh).
+- Target diacak per pemain (5 target berbeda dari rentang). Hipotesis "target jauh lebih sulit" (sudut pancar 15° → titik pantul ±8 cm di 30 cm) **belum didukung data**. Data per ronde (target, terukur, lock_ms) disimpan dan diekspor CSV, sehingga hipotesis ini bisa diuji setelah acara (mis. korelasi |galat| vs target). Bila terbukti, opsi perbaikan: target berstrata (satu dekat, satu sedang, satu jauh).
 - Hasil latihan tidak masuk leaderboard; jarak tidak ditampilkan di OLED/kiosk sebelum lock pada mode kompetisi (validitas tantangan).
 
 ### 3.4 Validitas input sentuh

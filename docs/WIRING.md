@@ -140,6 +140,11 @@ Laporan pengguna 15 November 2026: OLED, touch, dan HC-SR04 berfungsi di mode la
 | 7 | Kalibrasi HC-SR04 | §5 di 10/20/30 cm | galat ≤ 0,5 cm | ☐ belum | |
 | 8 | Sensor invalid | tutup sensor/jauhkan tangan lalu lock | "Sensor tak terbaca", tanpa skor palsu | ☐ belum | |
 | 9 | Konektivitas | Device Monitor | ONLINE, RSSI tampil, heartbeat ≤ 5 dtk | ☐ belum | |
-| 10 | Game penuh LIVE | 3 ronde + rating | leaderboard & review LIVE bertambah | ☐ belum | |
+| 10 | Game penuh LIVE | 5 ronde + rating | leaderboard 5 ronde & review LIVE bertambah, Serial tanpa `HTTP 422` / "JSON tidak utuh" | ☐ belum | |
 | 11 | Wi-Fi putus | matikan hotspot saat THANK_YOU, nyalakan lagi | OLED "Tersimpan, tunggu koneksi", lalu terkirim tanpa duplikat | ☐ belum | |
 | 12 | Restart | cabut-pasang daya | log "Perangkat restart", data lama tetap | ☐ belum | |
+| 13 | Main ProxiRush langsung main (fw 3.1.1) | Menu → Main ProxiRush → TAHAN di layar PROXIRUSH; diam 20 dtk di layar itu | langsung "RONDE 1/5" tanpa layar pilihan latihan, skor masuk leaderboard; diam → IDLE; menu Latihan tetap jalan dan tidak masuk leaderboard | ☐ belum | |
+| 14 | Kunci otomatis | tahan tangan diam di target, jangan sentuh pad sampai waktu habis | jawaban = jarak tangan (bukan 0); tutup/jauhkan sensor sepanjang ronde → "WAKTU HABIS" +0 | ☐ belum | |
+| 15 | Zona 100 | target mis. 20 cm, kunci di 20,0 / 20,9 / 21,0 cm | 100 / 100 / 90 di OLED dan dashboard | ☐ belum | |
+| 16 | Melodi akhir | selesai dengan skor < 170, 170–329, ≥ 330 | sedih (lambat) / sedang / senang (cepat); buzzer aktif hanya ritme | ☐ belum | |
+| 17 | Layar skor akhir (fw 3.1.1) | selesaikan 5 ronde | baris bawah hanya 3 skor ronde pertama, mis. "80 + 90 + 100 .." | ☐ belum | |

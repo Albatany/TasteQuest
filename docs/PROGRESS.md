@@ -19,4 +19,6 @@ Dokumen kerja agar pembangunan bisa dilanjutkan bila sesi terputus. Centang hany
 - [x] 8. Dokumentasi: README, BRAND, WIRING, SETUP, PRESENTASI, ANALYSIS, TEST_REPORT
 - [x] 9. Review akhir & handoff (verifikasi segar: check, firmware clean build, e2e online + offline)
 - [x] 11. v3.0.1: perbaiki payload firmware (HTTP 422), test kontrak firmware↔server, animasi OLED IDLE, slide kiosk, teks dashboard tanpa tanda pisah
+- [x] 12. v3.1.0: ProxiRush 5 ronde (maks 500, migrasi DB v2), latihan 3/5/8/10 sebelum main, kunci otomatis saat waktu habis, zona 100 (target s.d. +0,9 cm), melodi akhir sesuai skor
+- [x] 13. v3.1.1: Main ProxiRush langsung 5 ronde dinilai (latihan sebelum main dihapus, menu Latihan tetap), skor akhir OLED hanya 3 skor ronde pertama
 - [ ] 10. Checklist hardware fisik (docs/WIRING.md §7) — menunggu board & persetujuan upload

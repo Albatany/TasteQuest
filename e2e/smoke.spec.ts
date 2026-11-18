@@ -19,7 +19,8 @@ async function setDistance(page: Page, cm: number) {
 }
 const noHorizontalScroll = (page: Page) => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth);
 
-test('alur lengkap Demo Mode: 3 ronde, leaderboard, rating, skip, offline, kiosk', async ({ page }) => {
+test('alur lengkap Demo Mode: Main ProxiRush, 5 ronde, leaderboard, rating, skip, offline, kiosk', async ({ page }) => {
+  test.setTimeout(240_000);
   page.on('dialog', (d) => d.accept());
   const consoleErrors: string[] = [];
   page.on('console', (m) => m.type() === 'error' && consoleErrors.push(m.text()));
@@ -45,7 +46,9 @@ test('alur lengkap Demo Mode: 3 ronde, leaderboard, rating, skip, offline, kiosk
   const oled = page.getByTestId('oled');
   const stage = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Panggung permainan' }) });
 
-  await test.step('tiga ronde penuh: tepat, meleset 0,5 cm, habis waktu', async () => {
+  const targetOf = async () => Number(/target (\d+) cm/i.exec((await oled.textContent()) ?? '')![1]);
+
+  await test.step('Main ProxiRush langsung ke ronde asli, tanpa latihan', async () => {
     await page.goto('/#/arena');
     await page.getByRole('button', { name: 'Nyalakan' }).click();
     await expect(oled).toContainText('TASTEQUEST');
@@ -54,27 +57,37 @@ test('alur lengkap Demo Mode: 3 ronde, leaderboard, rating, skip, offline, kiosk
     await expect(oled).toContainText('MENU');
     await hold(page);
     await expect(oled).toContainText('PROXIRUSH');
+    await expect(oled).not.toContainText('Berapa ronde latihan?');
     await hold(page);
-    const plan: (number | null)[] = [0, 0.5, null];
-    for (let i = 0; i < 3; i++) {
-      await expect(oled).toContainText(`RONDE ${i + 1}/3`, { timeout: 8000 });
-      const target = Number(/target (\d+) cm/i.exec((await oled.textContent()) ?? '')![1]);
+  });
+
+  await test.step('lima ronde: tepat, meleset 0,5 cm, kunci otomatis, tanpa bacaan, zona 100', async () => {
+    const plan: (number | 'auto' | 'fault')[] = [0, -0.5, 'auto', 'fault', 0.9];
+    const want = [100, 95, 100, 0, 100];
+    for (let i = 0; i < 5; i++) {
+      await expect(oled).toContainText(`RONDE ${i + 1}/5`, { timeout: 8000 });
+      const target = await targetOf();
       const dev = plan[i];
-      if (dev === null) {
+      if (dev === 'fault') {
+        await page.getByLabel(/Sensor error/).check();
         await expect(oled).toContainText('WAKTU HABIS', { timeout: 16000 });
+        await page.getByLabel(/Sensor error/).uncheck();
+      } else if (dev === 'auto') {
+        await setDistance(page, target + 0.5); // tidak menyentuh pad: terkunci saat waktu habis
+        await expect(oled).toContainText(`Kunci ${(target + 0.5).toFixed(1)} cm`, { timeout: 16000 });
       } else {
         await setDistance(page, target + dev);
-        await expect(oled).toContainText('Sentuh = KUNCI', { timeout: 6000 });
+        await expect(oled).toContainText('SENTUH=KUNCI, ATAU TUNGGU', { timeout: 6000 });
         if (i === 0) {
           await expect(stage).toContainText('Jarak dirahasiakan'); // mode kompetisi tidak membocorkan jarak
           await page.screenshot({ path: `${SHOT}/02-arena-round.png`, fullPage: true });
         }
         await tap(page);
-        await expect(oled).toContainText(`+${100 - dev * 10} poin`);
       }
+      await expect(oled).toContainText(`+${want[i]} poin`);
     }
-    await expect(oled).toContainText('SKOR AKHIR', { timeout: 8000 });
-    await expect(oled).toContainText('195 / 300');
+    await expect(oled).toContainText('SKOR AKHIR PRO', { timeout: 8000 });
+    await expect(oled).toContainText('395 / 500');
     await expect(stage).toContainText('SKOR TERTINGGI BARU!', { timeout: 5000 });
     await page.screenshot({ path: `${SHOT}/03-arena-result.png`, fullPage: true });
   });
@@ -119,7 +132,7 @@ test('alur lengkap Demo Mode: 3 ronde, leaderboard, rating, skip, offline, kiosk
   await test.step('leaderboard, reviews, overview, device monitor memakai data backend', async () => {
     await page.goto('/#/leaderboard');
     await expect(page.locator('tbody tr')).toHaveCount(1);
-    await expect(page.locator('tbody tr').first()).toContainText('195');
+    await expect(page.locator('tbody tr').first()).toContainText('395');
     await expect(page.locator('tbody tr').first()).toContainText('habis');
     await page.screenshot({ path: `${SHOT}/04-leaderboard.png`, fullPage: true });
 
@@ -147,7 +160,7 @@ test('alur lengkap Demo Mode: 3 ronde, leaderboard, rating, skip, offline, kiosk
     await expect(page.getByText('Tersimpan.')).toBeVisible();
     const csv = await page.request.get('/api/export/games.csv?mode=demo');
     expect(csv.status()).toBe(200);
-    expect(await csv.text()).toContain(',195,');
+    expect(await csv.text()).toContain(',395,');
     await page.screenshot({ path: `${SHOT}/08-settings.png`, fullPage: true });
 
     await page.getByRole('button', { name: /^LIVE/ }).click();

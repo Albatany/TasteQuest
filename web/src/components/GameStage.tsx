@@ -80,7 +80,7 @@ export function GameStage({ device, size = 'md' }: { device: DeviceView | null; 
       body = (
         <>
           <p className={`anim-blink font-pixel font-bold text-gold-500 ${s.big}`}>SIAP DICOBA!</p>
-          <p className={`text-ink-100 ${s.body}`}>Uji ketepatan tanganmu dengan sensor ultrasonik. 3 ronde, skor maksimal 300.</p>
+          <p className={`text-ink-100 ${s.body}`}>Uji ketepatan tanganmu dengan sensor ultrasonik. {ROUNDS} ronde, skor maksimal {ROUNDS * 100}.</p>
           <ol className={`grid gap-4 text-left ${size === 'xl' ? 'max-w-5xl' : 'max-w-xl'} sm:grid-cols-3`}>
             {STEPS.map(([icon, text], i) => (
               <li key={icon} className="px-frame-inset flex flex-col items-center gap-2 p-4 text-center">
@@ -119,6 +119,14 @@ export function GameStage({ device, size = 'md' }: { device: DeviceView | null; 
         </>
       );
       break;
+    case 'RP_PRACTICE':
+      body = (
+        <>
+          <p className={`anim-blink font-pixel font-bold text-gold-500 ${s.big}`}>LATIHAN PROXIRUSH</p>
+          <p className={`max-w-2xl text-ink-100 ${s.body}`}>Pemain sedang pemanasan. Skor latihan tidak disimpan, lalu lanjut {ROUNDS} ronde asli.</p>
+        </>
+      );
+      break;
     case 'COUNTDOWN':
       body = (
         <>
@@ -143,7 +151,7 @@ export function GameStage({ device, size = 'md' }: { device: DeviceView | null; 
           <div className={`w-full max-w-3xl bg-ink-800 ${size === 'xl' ? 'h-6' : 'h-3'}`} role="progressbar" aria-label="Sisa waktu" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(frac * 100)}>
             <div className={`h-full ${frac < 0.3 ? 'bg-bad' : 'bg-gold-500'}`} style={{ width: `${Math.min(100, frac * 100)}%` }} />
           </div>
-          <p className={`font-pixel text-ink-100 ${s.mid}`}><span className="font-score">{num1((remaining ?? 0) / 1000)}</span> detik lagi. Sentuh pad untuk mengunci</p>
+          <p className={`font-pixel text-ink-100 ${s.mid}`}><span className="font-score">{num1((remaining ?? 0) / 1000)}</span> detik lagi. Sentuh pad untuk mengunci, atau tunggu</p>
           {t.practice
             ? <p className={`font-pixel text-ok ${s.mid}`}>Jarak tangan: <span className="font-score">{cm(t.distanceCm)}</span></p>
             : <p className={`text-ink-300 ${s.body}`}>Jarak dirahasiakan sampai dikunci</p>}
@@ -180,7 +188,7 @@ export function GameStage({ device, size = 'md' }: { device: DeviceView | null; 
           {best && <Confetti />}
           {label(t.practice ? 'Latihan selesai, skor tidak masuk leaderboard' : 'Skor akhir')}
           <p className={`font-score text-gold-500 ${s.huge}`}>
-            <CountUp value={t.totalScore ?? 0} /><span className={`text-ink-300 ${s.big}`}>/300</span>
+            <CountUp value={t.totalScore ?? 0} /><span className={`text-ink-300 ${s.big}`}>/{ROUNDS * 100}</span>
           </p>
           <div className="flex flex-wrap justify-center gap-3">
             {t.results.map((r) => (

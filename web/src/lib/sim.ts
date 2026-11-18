@@ -34,8 +34,10 @@ export const TONES: Record<Beep, [number, number][]> = {
   go: [[1175, 250]],
   lock: [[1320, 90]],
   timeout: [[220, 320]],
-  finish: [[523, 110], [659, 110], [784, 110], [1047, 260]],
+  finish: [[523, 110], [659, 110], [784, 110], [1047, 180], [784, 110], [1047, 420]],
   error: [[180, 180]],
+  finishMid: [[392, 140], [523, 140], [523, 140], [659, 420]],
+  finishLow: [[392, 320], [370, 320], [349, 320], [330, 800]],
 };
 
 const hex = (bytes: number) => [...crypto.getRandomValues(new Uint8Array(bytes))].map((b) => b.toString(16).padStart(2, '0')).join('');
@@ -115,6 +117,8 @@ class Simulator {
     }
     const ev = this.touch.sample(now, this.raw);
     if (ev) this.handle(this.machine.input(now, ev, this.reading()));
+    const r = this.reading();
+    if (r !== null) this.machine.reading(r); // tiap siklus = satu ping sensor (bahan kunci otomatis)
     this.handle(this.machine.tick(now));
     const changed = this.machine.state !== this.lastState;
     if (!this.offline) {

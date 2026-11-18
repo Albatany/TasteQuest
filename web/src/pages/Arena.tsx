@@ -1,5 +1,5 @@
 import { useEffect, type KeyboardEvent } from 'react';
-import { MENU_ITEMS, ROUNDS } from '../../../shared/src/game.ts';
+import { MENU_ITEMS, ROUNDS, resultTier } from '../../../shared/src/game.ts';
 import { GameStage } from '../components/GameStage.tsx';
 import { Icon, ModeBadge, Panel } from '../components/ui.tsx';
 import { useActiveDevice, useLive, useMode } from '../lib/live.tsx';
@@ -134,24 +134,30 @@ function Toggle({ id, checked, onChange, label, hint }: { id: string; checked: b
 }
 
 /** Ringkasan teks layar OLED firmware (firmware/include/screens.h). Tampilan grafisnya: npm run oled:preview. */
+const RESULT_LABEL = ['COBA LAGI', 'NICE', 'PRO', 'MASTER']; // sama dengan firmware screens.h
+
 function oledLines(v: SimView): string[] {
   const s = v.snap;
   const left = Math.ceil((s.remainingMs ?? 0) / 1000);
+  const roundLabel = `RONDE ${s.round}/${ROUNDS}`;
   switch (s.state) {
     case 'IDLE': return ['TASTEQUEST', 'ProxiRush + Rating', '', 'Sentuh utk mulai'];
     case 'MENU': return ['MENU', ...MENU_ITEMS.map((m, i) => `${i === s.menuIndex ? '>' : ' '} ${m}`), 'Sentuh:pilih Tahan:OK'];
     case 'READY': return [s.practice ? 'LATIHAN' : 'PROXIRUSH', `${ROUNDS} ronde`, 'Atur jarak, sentuh', 'Tahan=mulai Sentuh=batal'];
-    case 'COUNTDOWN': return [`RONDE ${s.round}/${ROUNDS}`, `Target ${s.targetCm} cm`, '', `   ${left}`];
+    case 'COUNTDOWN': return [roundLabel, `Target ${s.targetCm} cm`, '', `   ${left}`];
     case 'ROUND_ACTIVE': return [
-      `RONDE ${s.round}/${ROUNDS}   ${left}s`, `TARGET ${s.targetCm} cm`,
+      `${roundLabel}   ${left}s`, `TARGET ${s.targetCm} cm`,
       s.notice === 'NO_READING' ? 'Sensor tak terbaca!' : s.practice ? `Jarak ${v.reading === null ? '--' : v.reading.toFixed(1)} cm` : 'Jarak: rahasia',
-      'Sentuh = KUNCI',
+      'SENTUH=KUNCI, ATAU TUNGGU',
     ];
     case 'ROUND_RESULT': {
       const r = s.results.at(-1)!;
-      return r.measuredCm === null ? ['WAKTU HABIS', '', '+0 poin', ''] : [`Kunci ${r.measuredCm.toFixed(1)} cm`, `Selisih ${Math.abs(r.measuredCm - r.targetCm).toFixed(1)} cm`, `+${r.score} poin`, ''];
+      return r.measuredCm === null ? ['WAKTU HABIS', `Target ${r.targetCm} cm`, '+0 poin', ''] : [`Target ${r.targetCm} cm`, `Kunci ${r.measuredCm.toFixed(1)} cm`, `Selisih ${Math.abs(r.measuredCm - r.targetCm).toFixed(1)} cm`, `+${r.score} poin`];
     }
-    case 'GAME_RESULT': return [s.practice ? 'LATIHAN SELESAI' : 'SKOR AKHIR', `${s.totalScore} / 300`, s.results.map((r) => `${r.score}`).join(' '), 'Sentuh: lanjut'];
+    case 'GAME_RESULT': return [
+      s.practice ? 'LATIHAN SELESAI' : `SKOR AKHIR ${RESULT_LABEL[resultTier(s.totalScore ?? 0)]}`, `${s.totalScore} / ${ROUNDS * 100}`,
+      s.results.map((r) => `${r.score}`).join(' '), 'Sentuh: lanjut',
+    ];
     case 'RATING_OFFER': return ['Beri rating karya?', '', 'Tahan  = Ya', 'Sentuh = Lewati'];
     case 'RATING': return ['Nilai karya kami', `${'*'.repeat(s.stars)}${'.'.repeat(5 - s.stars)} (${s.stars})`, s.notice === 'PICK_STAR' ? 'Pilih bintang dulu' : '', 'Sentuh:ganti Tahan:OK'];
     case 'THANK_YOU': {

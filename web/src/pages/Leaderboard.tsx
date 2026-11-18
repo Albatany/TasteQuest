@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { ROUNDS } from '../../../shared/src/game.ts';
 import type { LeaderRow, Mode } from '../../../shared/src/schema.ts';
 import { Empty, ErrorBox, Icon, Loading, Panel } from '../components/ui.tsx';
 import { api, cm, dateTimeWib, playerName, seconds, useApi } from '../lib/api.ts';
@@ -76,10 +77,12 @@ export function Leaderboard() {
                     <td className="py-3 pr-3 text-right font-score text-ink-50">{r.totalScore}</td>
                     <td className="py-3 pr-3">
                       <ul className="flex flex-wrap gap-1.5">
-                        {r.rounds.map((x) => (
-                          <li key={x.round} className="bg-ink-800 px-2 py-0.5 tabular" title={`Target ${x.targetCm} cm`}>
+                        {Array.from({ length: ROUNDS }, (_, i) => r.rounds[i]).map((x, i) => x ? (
+                          <li key={i} className="bg-ink-800 px-2 py-0.5 tabular" title={`Target ${x.targetCm} cm`}>
                             <span className="text-ink-300">{x.targetCm} cm:</span> {x.measuredCm === null ? <span className="text-bad">habis</span> : cm(x.measuredCm)}, <b className="text-gold-400">{x.score}</b>
                           </li>
+                        ) : (
+                          <li key={i} className="bg-ink-800 px-2 py-0.5 text-ink-300" title="Sesi lama 3 ronde">-</li>
                         ))}
                       </ul>
                     </td>
