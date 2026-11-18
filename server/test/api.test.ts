@@ -84,7 +84,7 @@ describe('auth perangkat & operator', () => {
 
 describe('event game & rating', () => {
   it('simpan game live, retry duplikat idempoten', async () => {
-    const e = game('evt-live-game-1', [[18, 18, 1500], [25, 26.3, 4000], [12, null, null]]);
+    const e = game('evt-live-game-1', [[18, 18, 1500], [25, 26.3, 4000], [12, null, null], [22, 22.5, 2000], [15, 14, 10000]]);
     const a = await api('/api/device/events', { body: e, token: TOKEN });
     expect(a.status).toBe(201);
     expect(a.body).toMatchObject({ status: 'created' });
@@ -93,13 +93,19 @@ describe('event game & rating', () => {
     expect(b.body).toMatchObject({ status: 'duplicate' });
     const lb = await api('/api/leaderboard?mode=live');
     expect(lb.body.rows).toHaveLength(1);
-    expect(lb.body.rows[0]).toMatchObject({ totalScore: 187, playerNo: 1, durationMs: 1500 + 4000 + 10000 });
+    expect(lb.body.rows[0]).toMatchObject({ totalScore: 377, playerNo: 1, durationMs: 1500 + 4000 + 10000 + 2000 + 10000 });
     expect(lb.body.rows[0].rounds[2]).toMatchObject({ measuredCm: null, score: 0 });
+    expect(lb.body.rows[0].rounds[3]).toMatchObject({ measuredCm: 22.5, score: 100 }); // zona 100
+  });
+  it('sesi harus tepat 5 ronde', async () => {
+    const e = game('evt-three-rounds', [[18, 18, 1500], [25, 25, 1000], [12, 12, 1000]]);
+    const r = await api('/api/device/events', { body: e, token: TOKEN });
+    expect(r.status).toBe(422);
   });
   it('skor yang tidak sesuai rumus ditolak', async () => {
-    const e = game('evt-bad-score-1', [[18, 18, 1500], [25, 25, 1000], [12, 12, 1000]]);
-    e.rounds[0].score = 90;
-    e.totalScore = 290;
+    const e = game('evt-bad-score-1', [[18, 18.5, 1500], [25, 25, 1000], [12, 12, 1000], [22, 22, 1000], [15, 15, 1000]]);
+    e.rounds[0].score = 95; // rumus lama; zona 100 → 100
+    e.totalScore = 495;
     const r = await api('/api/device/events', { body: e, token: TOKEN });
     expect(r.status).toBe(422);
     expect(JSON.stringify(r.body.issues)).toMatch(/rumus/);
@@ -126,7 +132,7 @@ describe('pemisahan demo/live', () => {
     expect((await api('/api/device/events', { body: rating('evt-sim-1x', 4, { mode: 'demo', deviceId: 'TQ-ESP01' }), cookie })).status).toBe(403);
     expect((await api('/api/device/events', { body: rating('evt-sim-1x', 4, { mode: 'live', deviceId: 'SIM-01' }), cookie })).status).toBe(403);
     expect((await api('/api/device/events', { body: rating('evt-sim-1x', 4, { mode: 'demo', deviceId: 'SIM-01' }), cookie })).status).toBe(201);
-    const g = game('evt-sim-game-1', [[10, 10, 900], [20, 20, 900], [30, 30, 900]], { mode: 'demo', deviceId: 'SIM-01' });
+    const g = game('evt-sim-game-1', [[10, 10, 900], [20, 20, 900], [30, 30, 900], [15, 15, 900], [25, 25, 900]], { mode: 'demo', deviceId: 'SIM-01' });
     expect((await api('/api/device/events', { body: g, cookie })).status).toBe(201);
   });
   it('analytics & leaderboard terpisah per mode', async () => {
@@ -134,7 +140,7 @@ describe('pemisahan demo/live', () => {
     const demo = (await api('/api/overview?mode=demo')).body;
     expect(live).toMatchObject({ sessions: 1, ratings: 5, avgStars: 3 });
     expect(demo).toMatchObject({ sessions: 1, ratings: 1, avgStars: 4 });
-    expect(demo.top[0].totalScore).toBe(300);
+    expect(demo.top[0].totalScore).toBe(500);
   });
   it('Mode LIVE menolak simulator', async () => {
     const s = (await api('/api/settings')).body;
@@ -155,11 +161,12 @@ describe('pemisahan demo/live', () => {
 
 describe('ranking & statistik', () => {
   it('urut skor tertinggi → durasi tercepat → selesai paling awal', async () => {
-    // skor sama (300), durasi berbeda; dua terakhir durasi sama, selesai berbeda (ageMs)
-    await api('/api/device/events', { body: game('evt-rank-slow', [[10, 10, 3000], [20, 20, 3000], [30, 30, 3000]]), token: TOKEN });
-    await api('/api/device/events', { body: game('evt-rank-fast', [[10, 10, 1000], [20, 20, 1000], [30, 30, 1000]]), token: TOKEN });
-    await api('/api/device/events', { body: game('evt-rank-late', [[10, 10, 2000], [20, 20, 2000], [30, 30, 2000]], { ageMs: 0 }), token: TOKEN });
-    await api('/api/device/events', { body: game('evt-rank-early', [[10, 10, 2000], [20, 20, 2000], [30, 30, 2000]], { ageMs: 60000 }), token: TOKEN });
+    // skor sama (500), durasi berbeda; dua terakhir durasi sama, selesai berbeda (ageMs)
+    const perfect = (ms: number): R[] => [10, 20, 30, 15, 25].map((t) => [t, t, ms]);
+    await api('/api/device/events', { body: game('evt-rank-slow', perfect(3000)), token: TOKEN });
+    await api('/api/device/events', { body: game('evt-rank-fast', perfect(1000)), token: TOKEN });
+    await api('/api/device/events', { body: game('evt-rank-late', perfect(2000), { ageMs: 0 }), token: TOKEN });
+    await api('/api/device/events', { body: game('evt-rank-early', perfect(2000), { ageMs: 60000 }), token: TOKEN });
     const rows = (await api('/api/leaderboard?mode=live')).body.rows;
     expect(rows.map((r: { eventId: string }) => r.eventId)).toEqual(['evt-rank-fast', 'evt-rank-early', 'evt-rank-late', 'evt-rank-slow', 'evt-live-game-1']);
     expect(rows.map((r: { rank: number }) => r.rank)).toEqual([1, 2, 3, 4, 5]);
@@ -200,18 +207,17 @@ describe('pengaturan & perangkat', () => {
     const sock: Socket = connect(base, { transports: ['websocket'] });
     await new Promise<void>((r) => sock.on('connect', () => r()));
     const gotGame = new Promise((r) => sock.once('game', r));
-    await api('/api/device/events', { body: game('evt-rt-game-1', [[11, 11.5, 2000], [22, 21, 2000], [15, 15, 2000]]), token: TOKEN });
-    expect(await gotGame).toMatchObject({ mode: 'live', session: { eventId: 'evt-rt-game-1', totalScore: 95 + 90 + 100 } });
+    await api('/api/device/events', { body: game('evt-rt-game-1', [[11, 11.5, 2000], [22, 21, 2000], [15, 15, 2000], [18, 18, 2000], [25, 25, 2000]]), token: TOKEN });
+    expect(await gotGame).toMatchObject({ mode: 'live', session: { eventId: 'evt-rt-game-1', totalScore: 100 + 90 + 100 + 100 + 100 } });
 
     const gotDevice = new Promise<{ telemetry: { state: string } }>((r) => sock.on('device', (d) => d.telemetry?.state === 'ROUND_ACTIVE' && r(d)));
-    await api('/api/device/telemetry', {
-      token: TOKEN,
-      body: {
-        v: 1, deviceId: 'TQ-ESP01', mode: 'live', state: 'ROUND_ACTIVE', menuIndex: 0, practice: false, round: 1, targetCm: 18,
-        remainingMs: 8000, results: [], totalScore: null, stars: 0, notice: null, rated: false, sessionEventId: null,
-        ratingEventId: null, ratingStatus: null, distanceCm: 17.4, sensorError: null, touch: false, touchStuck: false, muted: false, queue: 0,
-      },
-    });
+    const tel = {
+      v: 1, deviceId: 'TQ-ESP01', mode: 'live', state: 'ROUND_ACTIVE', menuIndex: 0, practice: false, round: 1, targetCm: 18,
+      remainingMs: 8000, results: [], totalScore: null, stars: 0, notice: null, rated: false, sessionEventId: null,
+      ratingEventId: null, ratingStatus: null, distanceCm: 17.4, sensorError: null, touch: false, touchStuck: false, muted: false, queue: 0,
+    };
+    expect((await api('/api/device/telemetry', { token: TOKEN, body: { ...tel, state: 'RP_PRACTICE', round: 0, targetCm: null } })).status).toBe(200);
+    await api('/api/device/telemetry', { token: TOKEN, body: tel });
     expect((await gotDevice).telemetry.state).toBe('ROUND_ACTIVE');
 
     const offline = new Promise<{ online: boolean }>((r) => sock.on('device', (d) => d.id === 'TQ-ESP01' && !d.online && r(d)));

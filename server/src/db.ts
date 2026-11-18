@@ -4,7 +4,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { DEFAULT_SETTINGS, settingsSchema, type GameEvent, type LeaderRow, type Mode, type RatingEvent, type Settings } from '../../shared/src/schema.ts';
 
 // Tambahkan migrasi baru di akhir array; jangan ubah yang sudah ada.
-const MIGRATIONS = [
+export const MIGRATIONS = [
   `CREATE TABLE devices (
     id TEXT PRIMARY KEY,
     source TEXT NOT NULL CHECK (source IN ('demo','live')),
@@ -55,6 +55,37 @@ const MIGRATIONS = [
   );
   CREATE INDEX idx_device_log ON device_log (device_id, id);
   CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);`,
+  // v2: ProxiRush 5 ronde (skor maks 500). SQLite tidak bisa mengubah CHECK, jadi tabel dibangun ulang.
+  // Sesi lama 3 ronde disalin apa adanya (tidak dikonversi).
+  `CREATE TABLE game_sessions_v2 (
+    id INTEGER PRIMARY KEY,
+    event_id TEXT NOT NULL UNIQUE,
+    device_id TEXT NOT NULL REFERENCES devices(id),
+    mode TEXT NOT NULL CHECK (mode IN ('demo','live')),
+    player_no INTEGER NOT NULL,
+    nickname TEXT,
+    total_score INTEGER NOT NULL CHECK (total_score BETWEEN 0 AND 500),
+    duration_ms INTEGER NOT NULL CHECK (duration_ms >= 0),
+    finished_at TEXT NOT NULL,
+    received_at TEXT NOT NULL,
+    UNIQUE (mode, player_no)
+  );
+  INSERT INTO game_sessions_v2 SELECT * FROM game_sessions;
+  DROP TABLE game_sessions;
+  ALTER TABLE game_sessions_v2 RENAME TO game_sessions;
+  CREATE INDEX idx_games_rank ON game_sessions (mode, total_score DESC, duration_ms, finished_at, id);
+  CREATE TABLE game_rounds_v2 (
+    session_id INTEGER NOT NULL REFERENCES game_sessions(id) ON DELETE CASCADE,
+    round INTEGER NOT NULL CHECK (round BETWEEN 1 AND 5),
+    target_cm INTEGER NOT NULL,
+    measured_cm REAL,
+    score INTEGER NOT NULL CHECK (score BETWEEN 0 AND 100),
+    lock_ms INTEGER,
+    PRIMARY KEY (session_id, round)
+  );
+  INSERT INTO game_rounds_v2 SELECT * FROM game_rounds;
+  DROP TABLE game_rounds;
+  ALTER TABLE game_rounds_v2 RENAME TO game_rounds;`,
 ];
 
 const RANK_ORDER = 'total_score DESC, duration_ms ASC, finished_at ASC, id ASC';
@@ -66,7 +97,8 @@ type Row = Record<string, unknown>;
 export function openDb(path: string) {
   if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true });
   const db = new DatabaseSync(path);
-  db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 3000;');
+  // Foreign key dimatikan selama migrasi: DROP TABLE saat membangun ulang tabel tidak boleh memicu cascade delete.
+  db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = OFF; PRAGMA busy_timeout = 3000;');
 
   const tx = <T>(fn: () => T): T => {
     db.exec('BEGIN IMMEDIATE');
@@ -90,6 +122,7 @@ export function openDb(path: string) {
       db.exec(`PRAGMA user_version = ${v + 1}`);
     });
   }
+  db.exec('PRAGMA foreign_keys = ON;');
 
   const toLeader = (r: Row): LeaderRow => ({
     rank: Number(r.rank), id: Number(r.id), eventId: String(r.event_id), playerNo: Number(r.player_no),
