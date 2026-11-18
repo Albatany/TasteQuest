@@ -1,12 +1,13 @@
 # TasteQuest v3
 
-**HMIF UNJA × FST MARKET DAY 2026: PLAY. EXPLORE. RATE.**
+**HMIF UNJA × FST MARKET DAY 2026 — PLAY. EXPLORE. RATE.**
+**© Muhammad Aziz Syah Dani 2026**
 
 Proyek IoT interaktif untuk stan pameran karya mata kuliah Informatika Universitas Jambi (stan tidak menjual makanan):
 
-- **ProxiRush**: permainan ketepatan jarak ultrasonik 3 ronde (HC-SR04 + pad sentuh TTP223 + OLED + buzzer).
-- **Exhibition Rating**: rating sukarela 1–5 bintang untuk karya, langsung di alat.
-- **Dashboard IoT real-time**: Overview, Arena, Leaderboard, Visitor Reviews, Device Monitor, Pengaturan, dan Kiosk layar penuh.
+- **ProxiRush** — permainan ketepatan jarak ultrasonik 5 ronde (HC-SR04 + pad sentuh TTP223 + OLED + buzzer).
+- **Exhibition Rating** — rating sukarela 1–5 bintang untuk karya, langsung di alat.
+- **Dashboard IoT real-time** — Overview, Arena, Leaderboard, Visitor Reviews, Device Monitor, Pengaturan, dan Kiosk layar penuh.
 
 Semua berjalan **lokal tanpa internet**: ESP8266 → HTTP → laptop (Express + SQLite) → Socket.IO → browser.
 
@@ -81,11 +82,14 @@ Konfigurasi OLED (alamat, SSD1306/SH1106, 128×64/128×32), buzzer aktif/pasif &
 
 ## Alur perangkat
 
-`IDLE → MENU → READY → COUNTDOWN → ROUND_ACTIVE → ROUND_RESULT (×3) → GAME_RESULT → RATING_OFFER → RATING → THANK_YOU → IDLE`
+`IDLE → MENU → READY → COUNTDOWN → ROUND_ACTIVE → ROUND_RESULT (×5) → GAME_RESULT → RATING_OFFER → RATING → THANK_YOU → IDLE`
 
 - Sentuh singkat: navigasi, pilih bintang (1→5→1), kunci jarak. Tahan ±1,2 dtk: konfirmasi.
-- Menu: *Main ProxiRush*, *Latihan* (jarak tampil langsung, tidak masuk leaderboard), *Beri Rating* (langsung, tanpa main).
-- Skor ronde `clamp(round(100 − |terukur − target| × 10), 0, 100)`, timeout = 0, maks 300.
+- Menu: *Main ProxiRush* (langsung 5 ronde asli yang dinilai), *Latihan* (jarak tampil langsung, tidak masuk leaderboard), *Beri Rating* (langsung, tanpa main).
+- Latihan tidak disimpan dan tidak dijumlahkan. Sejak fw 3.1.1 tidak ada lagi latihan sebelum main; server tetap menerima state `RP_PRACTICE` dari fw 3.1.0.
+- Kunci jarak: sentuh pad, atau diam saja. Saat waktu habis jawaban terkunci otomatis dengan median 5 bacaan valid terakhir. Skor 0 hanya bila sepanjang ronde tidak ada bacaan valid (atau jaraknya memang jauh).
+- Skor ronde dihitung dalam persepuluhan cm: `a10 = round(terukur × 10)`, `t10 = target × 10`. Bila `t10 ≤ a10 ≤ t10 + 9` (target s.d. +0,9 cm) skor 100; selain itu `clamp(100 − |a10 − t10|, 0, 100)`. Maks 500.
+- Label akhir di OLED: ≥ 450 MASTER, ≥ 330 PRO, ≥ 170 NICE, selain itu COBA LAGI. Buzzer memainkan melodi akhir sesuai skor: ≥ 330 senang, 170 s.d. 329 sedang, < 170 sedih (buzzer aktif hanya membawa ritmenya, nada butuh buzzer pasif).
 - Leaderboard: skor tertinggi → total waktu kunci tercepat → selesai paling awal.
 
 ## Demo Mode & Live Mode
@@ -127,6 +131,7 @@ Secrets di `.env` dan `firmware/include/secrets.h` (keduanya di `.gitignore`), t
 - [`docs/BRAND.md`](docs/BRAND.md) — sumber brand HMIF, design tokens, audit desain & kontras
 - [`docs/WIRING.md`](docs/WIRING.md) — wiring, keselamatan, kalibrasi, troubleshooting, checklist hardware
 - [`docs/SETUP.md`](docs/SETUP.md) — jaringan lokal, offline, firewall, upload, pemulihan Wi-Fi
+- [`docs/TUTORIAL-LOCALHOST.md`](docs/TUTORIAL-LOCALHOST.md) — langkah demi langkah: dashboard di localhost, dengan internet (biasa) atau tanpa internet (hotspot laptop)
 - [`docs/ANALYSIS.md`](docs/ANALYSIS.md) — analisis kritis pengukuran, bias data, risiko
 - [`docs/PRESENTATION.md`](docs/PRESENTATION.md) — naskah presentasi 2–3 menit & kartu instruksi pengunjung
 - [`docs/TEST_REPORT.md`](docs/TEST_REPORT.md) — hasil pengujian
