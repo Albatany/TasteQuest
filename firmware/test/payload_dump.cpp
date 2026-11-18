@@ -35,17 +35,23 @@ int main() {
   telemetry(m, now, noSensor);  // IDLE: id kosong, jarak tidak ada
 
   m.input(now, Touch::SHORT, -1);  // MENU
-  m.input(now, Touch::LONG, -1);   // READY
-  m.input(now, Touch::LONG, -1);   // COUNTDOWN
-  wait(3000);
+  m.input(now, Touch::LONG, -1);   // Main ProxiRush → READY (tanpa latihan)
   DeviceExtras live;
   live.distanceTenths = 176;
   live.touch = true;
-  telemetry(m, now, live);  // ROUND_ACTIVE
-  m.input(now, Touch::SHORT, m.targets[0] * 10 + 4);
+  telemetry(m, now, live);  // READY ProxiRush
+  m.input(now, Touch::LONG, -1);  // ronde asli 1
+  wait(3000);
+  telemetry(m, now, live);  // ROUND_ACTIVE ronde asli
+  m.input(now, Touch::SHORT, m.targets[0] * 10 + 4);  // zona 100
   wait(2500 + 3000);
   m.input(now, Touch::SHORT, m.targets[1] * 10 - 7);
-  wait(2500 + 3000 + 10000);  // ronde 3 habis waktu
+  wait(2500 + 3000);
+  for (int t = 0; t < 7; t++) m.reading(m.targets[2] * 10 + 12 + t % 3);  // ronde 3: tidak menyentuh, kunci otomatis
+  wait(10000);
+  wait(2500 + 3000 + 10000);  // ronde 4: tidak ada bacaan valid
+  wait(2500 + 3000);
+  m.input(now, Touch::SHORT, m.targets[4] * 10);
   wait(2500);
   if (!o.game) { fprintf(stderr, "skenario gagal: event game tidak terbentuk\n"); return 1; }
   telemetry(m, now, live);  // GAME_RESULT dengan sessionEventId & ronde timeout

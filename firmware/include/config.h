@@ -40,7 +40,7 @@
 #define PRESENCE_CM 60.0f      // pengunjung mendekat → OLED "bangun" (bukan hitungan pengunjung, tidak memulai game)
 
 // ---------------- Jaringan ----------------
-#define FW_VERSION "3.0.2"
+#define FW_VERSION "3.1.1"
 #define HTTP_TIMEOUT_MS 800        // batas connect + respons per request (dibatasi agar input tidak macet lama)
 #define HEARTBEAT_MS 5000
 #define TELEMETRY_IDLE_MS 1000

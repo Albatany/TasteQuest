@@ -23,6 +23,8 @@ namespace scr {
 
 // Layar IDLE berganti tiap 5 detik: judul → MADE BY → FROM → logo HMIF, lalu berulang (20 detik).
 constexpr uint32_t SCENE_MS = 5000, CYCLE_MS = 4 * SCENE_MS;
+static const char* const RESULT_LABEL[] = {"COBA LAGI", "NICE", "PRO", "MASTER"};  // indeks = resultTier(total)
+static const char* const LOCK_HINT = "SENTUH=KUNCI, ATAU TUNGGU";  // font 5x7: 125 px
 
 inline int W(u8g2_t* u) { return u8g2_GetDisplayWidth(u); }
 inline int H(u8g2_t* u) { return u8g2_GetDisplayHeight(u); }
@@ -224,11 +226,14 @@ inline void drawScreen(u8g2_t* u, const ScreenView& v) {
     const char* title = stateName(m.state);
     a[0] = 0;
     switch (m.state) {
-      case State::MENU: snprintf(a, sizeof a, "%s", MENU_ITEMS[m.menuIndex]); title = "MENU"; break;
+      case State::MENU:
+        snprintf(a, sizeof a, "%s", MENU_ITEMS[m.menuIndex]);
+        title = "MENU";
+        break;
       case State::COUNTDOWN: snprintf(a, sizeof a, "%d  T:%dcm", secs, m.targetCm()); title = "SIAP"; break;
       case State::ROUND_ACTIVE: snprintf(a, sizeof a, "T:%dcm %ds", m.targetCm(), secs); title = "KUNCI!"; break;
       case State::ROUND_RESULT: snprintf(a, sizeof a, "+%d", last ? last->score : 0); title = "HASIL"; break;
-      case State::GAME_RESULT: snprintf(a, sizeof a, "%d / 300", m.total()); title = "SKOR"; break;
+      case State::GAME_RESULT: snprintf(a, sizeof a, "%d / %d", m.total(), ROUNDS * 100); title = m.practice ? "SKOR" : RESULT_LABEL[resultTier(m.total())]; break;
       case State::RATING: snprintf(a, sizeof a, "%d bintang", m.stars); title = "RATING"; break;
       case State::THANK_YOU: snprintf(a, sizeof a, "Terima kasih!"); title = "OK"; break;
       default: snprintf(a, sizeof a, "Tahan = ya"); title = "LANJUT?"; break;
@@ -257,8 +262,10 @@ inline void drawScreen(u8g2_t* u, const ScreenView& v) {
     case State::READY:
       header(u, v, m.practice ? "LATIHAN" : "PROXIRUSH");
       u8g2_SetFont(u, u8g2_font_6x10_tf);
-      center(u, "3 ronde. Atur jarak,", 23);
-      center(u, "sentuh untuk kunci", 34);
+      snprintf(a, sizeof a, "%d ronde. Atur jarak,", ROUNDS);
+      center(u, a, 23);
+      u8g2_SetFont(u, u8g2_font_5x7_tf);
+      center(u, LOCK_HINT, 34);
       if ((v.now / 400) % 2 == 0) { u8g2_DrawBox(u, 4, 39, w - 8, 12); u8g2_SetDrawColor(u, 0); }
       else u8g2_DrawFrame(u, 4, 39, w - 8, 12);
       u8g2_SetFont(u, u8g2_font_pressstart2p_8f);
@@ -298,7 +305,8 @@ inline void drawScreen(u8g2_t* u, const ScreenView& v) {
         snprintf(a, sizeof a, "jarak %s cm", b);
         center(u, a, 55);
       } else {
-        center(u, "jarak: rahasia", 55);
+        u8g2_SetFont(u, u8g2_font_5x7_tf);
+        center(u, LOCK_HINT, 55);
       }
       u8g2_DrawFrame(u, 0, 58, w, 6);
       if (rem > 0) u8g2_DrawBox(u, 1, 59, (int)((int64_t)(w - 2) * rem / (int32_t)m.cfg.roundMs), 4);
@@ -310,29 +318,35 @@ inline void drawScreen(u8g2_t* u, const ScreenView& v) {
       header(u, v, a);
       snprintf(a, sizeof a, "+%d", last ? last->score : 0);
       u8g2_SetFont(u, u8g2_font_logisoso28_tn);
-      center(u, a, 46);
+      center(u, a, 42);
       u8g2_SetFont(u, u8g2_font_6x10_tf);
-      if (!last || last->measuredTenths < 0) center(u, "WAKTU HABIS", 60);
+      if (!last || last->measuredTenths < 0) center(u, "WAKTU HABIS", 56);
       else {
         tenths(b, sizeof b, last->measuredTenths);
         snprintf(a, sizeof a, "%s cm (target %d)", b, last->targetCm);
-        center(u, a, 60);
+        center(u, a, 52);
+        tenths(b, sizeof b, abs(last->measuredTenths - last->targetCm * 10));
+        snprintf(a, sizeof a, "selisih %s cm", b);
+        center(u, a, 63);
       }
       break;
 
     case State::GAME_RESULT:
-      header(u, v, m.practice ? "LATIHAN" : "SKOR AKHIR");
+      header(u, v, m.practice ? "LATIHAN" : "SKOR", m.practice ? "" : RESULT_LABEL[resultTier(m.total())]);
       snprintf(a, sizeof a, "%d", m.total());
+      snprintf(b, sizeof b, "/%d", ROUNDS * 100);
       u8g2_SetFont(u, u8g2_font_logisoso28_tn);
       {
         int tw = (int)u8g2_GetStrWidth(u, a);
         u8g2_SetFont(u, u8g2_font_6x10_tf);
-        int x = (w - tw - (int)u8g2_GetStrWidth(u, "/300")) / 2;
-        u8g2_DrawStr(u, x + tw + 1, 43, "/300");
+        int x = (w - tw - (int)u8g2_GetStrWidth(u, b)) / 2;
+        u8g2_DrawStr(u, x + tw + 1, 43, b);
         u8g2_SetFont(u, u8g2_font_logisoso28_tn);
         u8g2_DrawStr(u, x, 43, a);
       }
-      snprintf(a, sizeof a, "%d + %d + %d", m.results[0].score, m.results[1].score, m.results[2].score);
+      a[0] = 0;  // 3 skor ronde pertama saja agar tidak berdesakan, mis. "80 + 90 + 100 .."
+      for (int i = 0, n = 0; i < m.resultCount && i < 3; i++) n += snprintf(a + n, sizeof a - n, i ? " + %d" : "%d", m.results[i].score);
+      if (m.resultCount > 3) strcat(a, " ..");
       u8g2_SetFont(u, u8g2_font_6x10_tf);
       center(u, a, 54);
       footer(u, m.practice ? "latihan tidak disimpan" : v.game == SendStatus::ACKED ? "tersimpan di server" : v.game == SendStatus::REJECTED ? "DITOLAK SERVER" : "menyimpan...");

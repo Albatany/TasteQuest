@@ -38,6 +38,8 @@ static void testScoring() {
   fclose(f);
   CHECK(n >= 10, "kasus terlalu sedikit (%d)", n);
   CHECK(quantizeTenths(20.34f) == 203 && quantizeTenths(20.35f) == 204, "kuantisasi 0,1 cm");
+  CHECK(resultTier(450) == 3 && resultTier(449) == 2 && resultTier(330) == 2 && resultTier(329) == 1 && resultTier(170) == 1 && resultTier(169) == 0,
+        "label MASTER/PRO/NICE/COBA LAGI");
 }
 
 static std::string feed(const std::initializer_list<std::pair<uint32_t, bool>>& steps, uint32_t every = 10, uint32_t extra = 200) {
@@ -93,8 +95,8 @@ static void testMedian() {
 }
 
 static uint32_t randSeq = 0;
-static const uint8_t TARGETS[] = {18, 25, 12};
-static uint32_t testRand(uint32_t) { return TARGETS[randSeq++ % 3] - 10; }
+static const uint8_t TARGETS[] = {18, 25, 12, 22, 15};
+static uint32_t testRand(uint32_t) { return TARGETS[randSeq++ % 5] - 10; }
 static int idSeq = 0;
 static void testId(char* out, size_t n) { snprintf(out, n, "TQ-TEST-0000-%d", ++idSeq); }
 
@@ -102,14 +104,14 @@ struct Sim {
   Machine m{testRand, testId};
   uint32_t now = 1000;
   bool game = false, rating = false;
-  void press(Touch t, int tenths = -1) { Out o = m.input(now, t, tenths); game |= o.game; rating |= o.rating; }
+  Beep beep = Beep::NONE;  // bunyi terakhir
+  void take(const Out& o) { game |= o.game; rating |= o.rating; if (o.beep != Beep::NONE) beep = o.beep; }
+  void press(Touch t, int tenths = -1) { take(m.input(now, t, tenths)); }
   void wait(uint32_t ms) {
     uint32_t end = now + ms;
     while (now < end) {
       now = now + 50 > end ? end : now + 50;
-      Out o = m.tick(now);
-      game |= o.game;
-      rating |= o.rating;
+      take(m.tick(now));
     }
   }
 };
@@ -121,25 +123,40 @@ static void testMachine() {
     s.press(Touch::SHORT);
     CHECK(s.m.state == State::MENU, "IDLE → MENU");
     s.press(Touch::LONG);
-    CHECK(s.m.state == State::READY, "MENU → READY");
+    CHECK(s.m.state == State::READY && !s.m.practice, "Main ProxiRush → READY, langsung dinilai tanpa latihan");
     s.press(Touch::LONG);
-    CHECK(s.m.state == State::COUNTDOWN, "READY → COUNTDOWN");
+    CHECK(s.m.state == State::COUNTDOWN && s.m.resultCount == 0 && s.m.displayRound() == 1, "TAHAN → ronde asli 1 dari 5");
     s.press(Touch::SHORT, 180);
     CHECK(s.m.state == State::COUNTDOWN, "input diabaikan saat countdown");
     s.wait(3000);
-    CHECK(s.m.state == State::ROUND_ACTIVE && s.m.targetCm() == 18, "ronde 1 target 18");
+    CHECK(s.m.state == State::ROUND_ACTIVE && s.m.targetCm() == 18 && s.m.displayRound() == 1, "ronde 1 target 18");
     s.press(Touch::SHORT, -1);
     CHECK(s.m.state == State::ROUND_ACTIVE && s.m.notice == Notice::NO_READING, "sensor invalid: tetap di ronde, tanpa jarak palsu");
     s.wait(1500);
     s.press(Touch::SHORT, 180);
-    CHECK(s.m.results[0].score == 100 && s.m.results[0].lockMs == 1500, "ronde 1 sempurna");
+    CHECK(s.m.results[0].score == 100 && s.m.results[0].lockMs == 1500, "ronde 1 dikunci TAP");
+    s.m.reading(250);  // di luar ronde aktif: diabaikan
     s.wait(ROUND_RESULT_MS + 3000);
-    s.press(Touch::SHORT, 263);
-    CHECK(s.m.results[1].score == 87, "ronde 2: %d", s.m.results[1].score);
-    s.wait(ROUND_RESULT_MS + 3000 + 10000);
-    CHECK(s.m.results[2].measuredTenths == -1 && s.m.results[2].score == 0 && s.m.results[2].lockMs == -1, "ronde 3 timeout");
+    const int seq[] = {262, 900, 263, 264, 261, 263};  // 5 terakhir: median 263 (outlier 900 ditolak)
+    for (int t : seq) s.m.reading(t);
+    s.wait(10000);
+    CHECK(s.m.results[1].measuredTenths == 263 && s.m.results[1].score == 87 && s.m.results[1].lockMs == 10000,
+          "waktu habis: kunci otomatis median 5 bacaan valid terakhir (%d, %d)", s.m.results[1].measuredTenths, s.m.results[1].score);
+    s.wait(ROUND_RESULT_MS + 3000);
+    s.m.reading(130);
+    s.wait(10000);
+    CHECK(s.m.results[2].measuredTenths == 130 && s.m.results[2].score == 90, "satu bacaan valid cukup untuk kunci otomatis");
+    s.wait(ROUND_RESULT_MS + 3000);
+    CHECK(s.m.targetCm() == 22 && !s.game, "ronde 4 target 22, belum ada data");
+    s.wait(500);
+    s.press(Touch::SHORT, 229);
+    CHECK(s.m.results[3].score == 100, "zona 100 (target + 0,9 cm)");
+    s.wait(ROUND_RESULT_MS + 3000);
+    s.wait(10000);  // ronde 5 tanpa bacaan sama sekali
+    CHECK(s.m.results[4].measuredTenths == -1 && s.m.results[4].score == 0 && s.m.results[4].lockMs == -1, "ronde tanpa bacaan valid = 0");
     s.wait(ROUND_RESULT_MS);
-    CHECK(s.m.state == State::GAME_RESULT && s.game && s.m.total() == 187, "game selesai total %d", s.m.total());
+    CHECK(s.m.state == State::GAME_RESULT && s.game && s.m.resultCount == ROUNDS && s.m.total() == 377, "game 5 ronde selesai total %d", s.m.total());
+    CHECK(s.beep == Beep::FINISH, "skor tinggi → melodi senang");
     s.press(Touch::SHORT);
     s.press(Touch::LONG);
     CHECK(s.m.state == State::RATING && s.m.stars == 0, "rating mulai tanpa pilihan");
@@ -156,15 +173,31 @@ static void testMachine() {
     CHECK(s.m.state == State::IDLE, "kembali IDLE");
   }
   {
-    Sim s;  // latihan: tanpa event game
+    Sim s;  // menu Latihan: tanpa event game
     s.press(Touch::SHORT);
     s.press(Touch::SHORT);
     s.press(Touch::LONG);
-    CHECK(s.m.practice, "mode latihan");
+    CHECK(s.m.practice && s.m.state == State::READY, "mode latihan");
     s.press(Touch::LONG);
     s.wait(3000);
-    for (int i = 0; i < 3; i++) { s.press(Touch::SHORT, 200); s.wait(ROUND_RESULT_MS + 3000); }
+    for (int i = 0; i < ROUNDS; i++) { s.press(Touch::SHORT, 400); s.wait(ROUND_RESULT_MS + 3000); }
     CHECK(s.m.state == State::GAME_RESULT && !s.game, "latihan tidak mengirim game");
+    CHECK(s.beep == Beep::FINISH_LOW, "skor rendah → melodi sedih");
+  }
+  {
+    Sim s;  // skor sedang → melodi sedang; diam di layar READY ProxiRush → IDLE
+    s.press(Touch::SHORT);
+    s.press(Touch::LONG);
+    s.wait(MENU_TIMEOUT_MS);
+    CHECK(s.m.state == State::IDLE, "READY ProxiRush tanpa aksi 20 dtk → IDLE");
+    s.press(Touch::SHORT);
+    CHECK(s.m.state == State::MENU && s.m.menuIndex == 0, "masuk lagi: menu utama");
+    s.press(Touch::SHORT);
+    s.press(Touch::LONG);
+    s.press(Touch::LONG);
+    s.wait(3000);
+    for (int i = 0; i < ROUNDS; i++) { s.press(Touch::SHORT, i < 2 ? s.m.targetCm() * 10 : 0); s.wait(ROUND_RESULT_MS + 3000); }
+    CHECK(s.m.total() == 200 && s.beep == Beep::FINISH_MID, "skor sedang (%d) → melodi sedang", s.m.total());
   }
   {
     Sim s;  // rating langsung + skip/timeout

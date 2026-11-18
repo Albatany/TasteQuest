@@ -9,7 +9,7 @@
 namespace tq {
 
 constexpr int SCHEMA_VERSION = 1;
-constexpr int ROUNDS = 3;
+constexpr int ROUNDS = 5;
 constexpr uint32_t DEBOUNCE_MS = 30, LONG_PRESS_MS = 1200, NOTICE_MS = 1500, MENU_TIMEOUT_MS = 20000,
                    ROUND_RESULT_MS = 2500, GAME_RESULT_MS = 8000, OFFER_TIMEOUT_MS = 10000,
                    RATING_TIMEOUT_MS = 20000, THANK_YOU_MS = 4000;
@@ -23,7 +23,7 @@ inline const char* stateName(State s) {
 static const char* const MENU_ITEMS[] = {"Main ProxiRush", "Latihan", "Beri Rating"};
 
 enum class Touch : uint8_t { NONE, SHORT, LONG };
-enum class Beep : uint8_t { NONE, NAV, CONFIRM, TICK, GO, LOCK, TIMEOUT, FINISH, ERROR };
+enum class Beep : uint8_t { NONE, NAV, CONFIRM, TICK, GO, LOCK, TIMEOUT, FINISH, ERROR, FINISH_MID, FINISH_LOW };
 enum class Notice : uint8_t { NONE, NO_READING, PICK_STAR };
 enum class SendStatus : uint8_t { NONE, PENDING, ACKED, REJECTED };  // status kirim event ke server
 
@@ -32,12 +32,23 @@ struct GameConfig {
   uint32_t countdownMs = 3000, roundMs = 10000;
 };
 
-// Jarak disimpan dalam persepuluhan cm (int). -1 = tidak ada/timeout.
-// Untuk input 0,1 cm rumus spesifikasi clamp(round(100 - |m - t|·10), 0, 100) = clamp(100 - |m10 - t·10|, 0, 100) persis.
+// Jarak disimpan dalam persepuluhan cm (int). -1 = tidak ada bacaan.
+// Zona 100: target s.d. target + 0,9 cm (toleransi sensor di luar ruangan); selain itu clamp(100 - |a10 - t10|, 0, 100).
 inline int roundScore(int measuredTenths, int targetCm) {
   if (measuredTenths < 0) return 0;
-  int s = 100 - abs(measuredTenths - targetCm * 10);
+  int t10 = targetCm * 10;
+  if (measuredTenths >= t10 && measuredTenths <= t10 + 9) return 100;
+  int s = 100 - abs(measuredTenths - t10);
   return s < 0 ? 0 : (s > 100 ? 100 : s);
+}
+// Tingkat hasil akhir (skala 500): 3 MASTER, 2 PRO, 1 NICE, 0 COBA LAGI. Dipakai label OLED dan melodi akhir.
+inline int resultTier(int total) { return total >= 450 ? 3 : total >= 330 ? 2 : total >= 170 ? 1 : 0; }
+
+// Median n > 0 nilai (mengurutkan v). Jumlah genap: rata-rata dua nilai tengah (dibulatkan).
+inline int median(int* v, int n) {
+  for (int i = 1; i < n; i++)
+    for (int j = i; j > 0 && v[j - 1] > v[j]; j--) { int x = v[j]; v[j] = v[j - 1]; v[j - 1] = x; }
+  return (v[(n - 1) / 2] + v[n / 2] + 1) / 2;
 }
 inline int quantizeTenths(float cm) { return (int)(cm * 10.0f + (cm >= 0 ? 0.5f : -0.5f)); }
 
@@ -103,10 +114,7 @@ class MedianFilter {
     int v[N], n = 0;
     for (int i = 0; i < count_; i++)
       if (val_[i] >= 0 && now - at_[i] <= windowMs) v[n++] = val_[i];
-    if (n < MIN_VALID) return -1;
-    for (int i = 1; i < n; i++)
-      for (int j = i; j > 0 && v[j - 1] > v[j]; j--) { int x = v[j]; v[j] = v[j - 1]; v[j - 1] = x; }
-    return (v[(n - 1) / 2] + v[n / 2] + 1) / 2;  // jumlah genap: rata-rata dua nilai tengah (dibulatkan)
+    return n < MIN_VALID ? -1 : median(v, n);
   }
   SonarError error(uint32_t now, uint32_t windowMs) const {
     if (read(now, windowMs) >= 0) return SonarError::NONE;
@@ -170,7 +178,7 @@ class Machine {
           startRating(now, "");
           o.beep = Beep::CONFIRM;
         } else {
-          practice = menuIndex == 1;
+          practice = menuIndex == 1;  // 0 = Main ProxiRush (langsung dinilai), 1 = Latihan
           go(State::READY, now);
           o.beep = Beep::CONFIRM;
         }
@@ -180,11 +188,7 @@ class Machine {
           go(State::MENU, now);
           o.beep = Beep::NAV;
         } else {
-          pickTargets();
-          resultCount = 0;
-          round = 0;
-          sessionEventId[0] = 0;
-          go(State::COUNTDOWN, now);
+          start(now);
           o.beep = Beep::CONFIRM;
         }
         break;
@@ -250,12 +254,18 @@ class Machine {
     switch (state) {
       case State::COUNTDOWN:
         go(State::ROUND_ACTIVE, now);
+        recentCount_ = 0;
         o.beep = Beep::GO;
         break;
-      case State::ROUND_ACTIVE:
-        finishRound(now, -1, -1);
+      case State::ROUND_ACTIVE: {
+        // Waktu habis: kunci otomatis dengan median bacaan valid terakhir. Nol hanya bila sepanjang ronde tak ada bacaan.
+        int v[5];
+        memcpy(v, recent_, sizeof v);
+        int m = recentCount_ ? median(v, recentCount_) : -1;
+        finishRound(now, m, m < 0 ? -1 : (int32_t)cfg.roundMs);
         o.beep = Beep::TIMEOUT;
         break;
+      }
       case State::ROUND_RESULT:
         if (round < ROUNDS - 1) {
           round++;
@@ -266,7 +276,8 @@ class Machine {
             o.game = true;
           }
           go(State::GAME_RESULT, now);
-          o.beep = Beep::FINISH;
+          static const Beep FINISH_BEEPS[] = {Beep::FINISH_LOW, Beep::FINISH_MID, Beep::FINISH, Beep::FINISH};
+          o.beep = FINISH_BEEPS[resultTier(total())];
         }
         break;
       case State::GAME_RESULT:
@@ -276,6 +287,14 @@ class Machine {
         go(State::IDLE, now);
     }
     return o;
+  }
+
+  // Bacaan jarak valid per ping sensor; hanya disimpan (5 terakhir) saat ronde berjalan.
+  void reading(int tenths) {
+    if (state != State::ROUND_ACTIVE) return;
+    if (recentCount_ == 5) memmove(recent_, recent_ + 1, 4 * sizeof recent_[0]);
+    else recentCount_++;
+    recent_[recentCount_ - 1] = tenths;
   }
 
   bool inGame() const { return state == State::COUNTDOWN || state == State::ROUND_ACTIVE || state == State::ROUND_RESULT || state == State::GAME_RESULT; }
@@ -315,19 +334,26 @@ class Machine {
     notice = n;
     noticeAt = now;
   }
+  void start(uint32_t now) {
+    pickTargets(ROUNDS);
+    resultCount = 0;
+    round = 0;
+    sessionEventId[0] = 0;
+    go(State::COUNTDOWN, now);
+  }
   void startRating(uint32_t now, const char* sessionId) {
     stars = 0;  // tanpa pilihan awal: hindari bias jangkar & kiriman tak sengaja
     snprintf(ratingSessionId, sizeof ratingSessionId, "%s", sessionId);
     ratingEventId[0] = 0;
     go(State::RATING, now);
   }
-  void pickTargets() {
+  void pickTargets(int count) {
     uint32_t span = (uint32_t)(cfg.targetMaxCm - cfg.targetMinCm + 1);
-    for (int n = 0; n < ROUNDS;) {
+    for (int n = 0; n < count;) {
       uint8_t t = (uint8_t)(cfg.targetMinCm + (int)rand_(span));
       bool dup = false;
       for (int i = 0; i < n; i++) dup |= targets[i] == t;
-      if (!dup) targets[n++] = t;
+      if (!dup || n >= (int)span) targets[n++] = t;  // rentang target bisa lebih sempit dari jumlah ronde
     }
   }
   void finishRound(uint32_t now, int measuredTenths, int32_t lockMs) {
@@ -341,6 +367,8 @@ class Machine {
   }
 
   int lastTick_ = -1;
+  int recent_[5] = {0};
+  int recentCount_ = 0;
   RandFn rand_;
   IdFn newId_;
 };

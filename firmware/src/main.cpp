@@ -75,7 +75,10 @@ static const Note N_TICK[] = {{740, 90}, {0, 0}};
 static const Note N_GO[] = {{1175, 250}, {0, 0}};
 static const Note N_LOCK[] = {{1320, 90}, {0, 0}};
 static const Note N_TIMEOUT[] = {{220, 320}, {0, 0}};
-static const Note N_FINISH[] = {{523, 110}, {659, 110}, {784, 110}, {1047, 260}, {0, 0}};
+// Melodi akhir sesuai skor (logic.h resultTier). Buzzer aktif tidak bisa bernada, jadi suasana dibawa oleh ritme juga.
+static const Note N_FINISH[] = {{523, 110}, {659, 110}, {784, 110}, {1047, 180}, {784, 110}, {1047, 420}, {0, 0}};  // tinggi: senang
+static const Note N_FINISH_MID[] = {{392, 140}, {523, 140}, {523, 140}, {659, 420}, {0, 0}};                        // sedang: ta-da
+static const Note N_FINISH_LOW[] = {{392, 320}, {370, 320}, {349, 320}, {330, 800}, {0, 0}};                        // rendah: sedih
 static const Note N_ERROR[] = {{180, 180}, {0, 0}};
 static const Note* melody = nullptr;
 static uint8_t noteIdx = 0;
@@ -98,7 +101,7 @@ static void buzzerOff() {
 }
 static void beep(Beep b) {
   if (b == Beep::NONE || muted) return;
-  static const Note* const TABLE[] = {nullptr, N_NAV, N_CONFIRM, N_TICK, N_GO, N_LOCK, N_TIMEOUT, N_FINISH, N_ERROR};
+  static const Note* const TABLE[] = {nullptr, N_NAV, N_CONFIRM, N_TICK, N_GO, N_LOCK, N_TIMEOUT, N_FINISH, N_ERROR, N_FINISH_MID, N_FINISH_LOW};
   melody = TABLE[(int)b];
   noteIdx = 0;
   noteOn = true;
@@ -139,8 +142,13 @@ static void pingSonar(uint32_t now) {
     return;
   }
   float cm = (us * SOUND_CM_PER_US / 2.0f) * CAL_SCALE + CAL_OFFSET_CM;
-  if (cm < SENSOR_MIN_CM || cm > SENSOR_MAX_CM) sonar.push(now, 0, SonarError::OUT_OF_RANGE);
-  else sonar.push(now, quantizeTenths(cm), SonarError::NONE);
+  if (cm < SENSOR_MIN_CM || cm > SENSOR_MAX_CM) {
+    sonar.push(now, 0, SonarError::OUT_OF_RANGE);
+    return;
+  }
+  int tenths = quantizeTenths(cm);
+  sonar.push(now, tenths, SonarError::NONE);
+  machine.reading(tenths);  // bahan kunci otomatis saat waktu ronde habis
 }
 
 // ---------------- Antrean event (RAM) ----------------
@@ -215,7 +223,11 @@ static uint32_t backoffMs(uint32_t attempts) {
 /** POST JSON ke server. Mengembalikan kode HTTP (>0) atau <=0 bila gagal jaringan. */
 static int post(const char* path, JsonDocument& doc, String* resp = nullptr) {
   String body;
-  serializeJson(doc, body);
+  // Heap habis = JSON terpotong, dan server akan menolaknya (event hilang diam-diam). Jangan kirim; event diulang nanti.
+  if (doc.overflowed() || serializeJson(doc, body) != measureJson(doc)) {
+    Serial.printf("[net] %s: JSON tidak utuh (heap %u), batal kirim\n", path, (unsigned)ESP.getFreeHeap());
+    return -1;
+  }
   http.setReuse(true);
   http.setTimeout(HTTP_TIMEOUT_MS);
   int code = -1;
@@ -313,8 +325,8 @@ static uint32_t sentSig = 0;
 
 static uint32_t stateSig() {
   return (uint32_t)machine.state | (uint32_t)machine.menuIndex << 4 | (uint32_t)machine.stars << 6 |
-         (uint32_t)machine.resultCount << 9 | (uint32_t)machine.notice << 11 | (uint32_t)ratingStatus << 13 |
-         (uint32_t)machine.round << 15 | (uint32_t)touch.pressed() << 17;
+         (uint32_t)machine.resultCount << 9 | (uint32_t)machine.notice << 13 | (uint32_t)ratingStatus << 15 |
+         (uint32_t)machine.round << 17 | (uint32_t)touch.pressed() << 21;
 }
 
 static void network(uint32_t now) {
