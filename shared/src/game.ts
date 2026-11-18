@@ -3,14 +3,17 @@
 // firmware/include/logic.h adalah cerminan C++ file ini — ubah keduanya bersamaan.
 
 export const SCHEMA_VERSION = 1;
-export const ROUNDS = 3;
+export const ROUNDS = 5;
 export const SIM_PREFIX = 'SIM-';
 
 export const STATES = [
   'IDLE', 'MENU', 'READY', 'COUNTDOWN', 'ROUND_ACTIVE', 'ROUND_RESULT',
-  'GAME_RESULT', 'RATING_OFFER', 'RATING', 'THANK_YOU',
+  'GAME_RESULT', 'RATING_OFFER', 'RATING', 'THANK_YOU', 'RP_PRACTICE',
 ] as const;
+/** State yang dilaporkan ke server. RP_PRACTICE hanya dikirim firmware 3.1.0 (latihan sebelum main); tetap diterima. */
 export type DeviceState = (typeof STATES)[number];
+/** State internal mesin. */
+export type MachineState = Exclude<DeviceState, 'RP_PRACTICE'>;
 
 export const MENU_ITEMS = ['Main ProxiRush', 'Latihan', 'Beri Rating'] as const;
 
@@ -45,19 +48,33 @@ export interface RoundResult {
 /** Resolusi 0,1 cm: cukup untuk HC-SR04 (~0,3 cm) dan membuat skor identik di C++ dan TS. */
 export const quantizeCm = (cm: number) => Math.round(cm * 10) / 10;
 
-/** Rumus spesifikasi: clamp(round(100 - |measured - target| * 10), 0, 100). Timeout = 0. */
+/**
+ * Skor dalam persepuluhan cm (bilangan bulat, identik dengan firmware). Zona 100: target s.d. target + 0,9 cm
+ * (toleransi sensor di luar ruangan). Selain itu clamp(100 - |a10 - t10|, 0, 100). Tanpa bacaan = 0.
+ */
 export function roundScore(measuredCm: number | null, targetCm: number): number {
   if (measuredCm === null || !Number.isFinite(measuredCm)) return 0;
-  return Math.min(100, Math.max(0, Math.round(100 - Math.abs(measuredCm - targetCm) * 10)));
+  const a10 = Math.round(measuredCm * 10), t10 = targetCm * 10;
+  if (a10 >= t10 && a10 <= t10 + 9) return 100;
+  return Math.min(100, Math.max(0, 100 - Math.abs(a10 - t10)));
 }
 
-/** Tiga target bulat berbeda dalam [min, max]. rand(n) mengembalikan bilangan bulat [0, n). */
-export function pickTargets(cfg: GameConfig, rand: (n: number) => number): number[] {
+/** Tingkat hasil akhir (skala 500): 3 MASTER, 2 PRO, 1 NICE, 0 COBA LAGI. Dipakai label OLED dan melodi akhir. */
+export const resultTier = (total: number) => (total >= 450 ? 3 : total >= 330 ? 2 : total >= 170 ? 1 : 0);
+
+/** Median bilangan bulat (jumlah genap: rata-rata dua nilai tengah, dibulatkan), sama dengan firmware. */
+const median = (v: number[]) => {
+  const s = [...v].sort((a, b) => a - b);
+  return Math.floor((s[(s.length - 1) >> 1] + s[s.length >> 1] + 1) / 2);
+};
+
+/** `count` target bulat dalam [min, max], berbeda selama rentangnya cukup. rand(n) mengembalikan bilangan bulat [0, n). */
+export function pickTargets(cfg: GameConfig, rand: (n: number) => number, count = ROUNDS): number[] {
   const span = cfg.targetMaxCm - cfg.targetMinCm + 1;
   const out: number[] = [];
-  while (out.length < ROUNDS) {
+  while (out.length < count) {
     const t = cfg.targetMinCm + rand(span);
-    if (!out.includes(t)) out.push(t);
+    if (!out.includes(t) || out.length >= span) out.push(t); // rentang target bisa lebih sempit dari jumlah ronde
   }
   return out;
 }
@@ -106,7 +123,9 @@ export class TouchClassifier {
   }
 }
 
-export type Beep = 'nav' | 'confirm' | 'tick' | 'go' | 'lock' | 'timeout' | 'finish' | 'error';
+export type Beep = 'nav' | 'confirm' | 'tick' | 'go' | 'lock' | 'timeout' | 'finish' | 'error' | 'finishMid' | 'finishLow';
+/** Melodi akhir sesuai skor: tinggi (PRO/MASTER) senang, sedang (NICE) biasa, rendah sedih. */
+const FINISH_BEEPS: Beep[] = ['finishLow', 'finishMid', 'finish', 'finish'];
 export type Notice = 'NO_READING' | 'PICK_STAR' | null;
 export type Action =
   | { type: 'beep'; beep: Beep }
@@ -114,10 +133,10 @@ export type Action =
   | { type: 'rating'; eventId: string; stars: number; sessionEventId: string | null };
 
 export interface Snapshot {
-  state: DeviceState;
+  state: MachineState;
   menuIndex: number;
   practice: boolean;
-  round: number; // 1..3 saat permainan, 0 di luar permainan
+  round: number; // 1..ROUNDS saat permainan, 0 di luar permainan
   targetCm: number | null;
   remainingMs: number | null;
   results: RoundResult[];
@@ -132,10 +151,11 @@ export interface Snapshot {
 const beep = (b: Beep): Action => ({ type: 'beep', beep: b });
 
 export class Machine {
-  state: DeviceState = 'IDLE';
+  state: MachineState = 'IDLE';
   enteredAt = 0;
   menuIndex = 0;
   practice = false;
+  recent: number[] = []; // <= 5 bacaan valid terakhir ronde ini (persepuluhan cm) untuk kunci otomatis
   round = 0; // indeks ronde aktif (0-based)
   targets: number[] = [];
   results: RoundResult[] = [];
@@ -174,7 +194,7 @@ export class Machine {
           this.startRating(now, null);
           a.push(beep('confirm'));
         } else {
-          this.practice = this.menuIndex === 1;
+          this.practice = this.menuIndex === 1; // 0 = Main ProxiRush (langsung dinilai), 1 = Latihan
           this.go('READY', now);
           a.push(beep('confirm'));
         }
@@ -184,11 +204,7 @@ export class Machine {
           this.go('MENU', now);
           a.push(beep('nav'));
         } else {
-          this.targets = pickTargets(this.cfg, this.rand);
-          this.results = [];
-          this.round = 0;
-          this.sessionEventId = null;
-          this.go('COUNTDOWN', now);
+          this.start(now);
           a.push(beep('confirm'));
         }
         break;
@@ -256,12 +272,16 @@ export class Machine {
     switch (this.state) {
       case 'COUNTDOWN':
         this.go('ROUND_ACTIVE', now);
+        this.recent = [];
         a.push(beep('go'));
         break;
-      case 'ROUND_ACTIVE':
-        this.finishRound(now, null, null);
+      case 'ROUND_ACTIVE': {
+        // Waktu habis: kunci otomatis dengan median bacaan valid terakhir. Nol hanya bila sepanjang ronde tak ada bacaan.
+        const m = this.recent.length ? median(this.recent) : null;
+        this.finishRound(now, m === null ? null : m / 10, m === null ? null : this.cfg.roundMs);
         a.push(beep('timeout'));
         break;
+      }
       case 'ROUND_RESULT':
         if (this.round < ROUNDS - 1) {
           this.round++;
@@ -273,7 +293,7 @@ export class Machine {
             a.push({ type: 'game', eventId: this.sessionEventId, rounds: this.results.map((r) => ({ ...r })), totalScore, roundMs: this.cfg.roundMs });
           }
           this.go('GAME_RESULT', now);
-          a.push(beep('finish'));
+          a.push(beep(FINISH_BEEPS[resultTier(totalScore)]));
         }
         break;
       case 'GAME_RESULT':
@@ -283,6 +303,13 @@ export class Machine {
         this.go('IDLE', now);
     }
     return a;
+  }
+
+  /** Bacaan jarak valid (cm) per ping sensor; hanya disimpan saat ronde berjalan. */
+  reading(cm: number) {
+    if (this.state !== 'ROUND_ACTIVE') return;
+    this.recent.push(Math.round(cm * 10));
+    if (this.recent.length > 5) this.recent.shift();
   }
 
   snapshot(now: number): Snapshot {
@@ -319,7 +346,7 @@ export class Machine {
     }
   }
 
-  private go(s: DeviceState, now: number) {
+  private go(s: MachineState, now: number) {
     this.state = s;
     this.enteredAt = now;
     this.notice = null;
@@ -329,6 +356,14 @@ export class Machine {
   private setNotice(n: Notice, now: number) {
     this.notice = n;
     this.noticeAt = now;
+  }
+
+  private start(now: number) {
+    this.targets = pickTargets(this.cfg, this.rand);
+    this.results = [];
+    this.round = 0;
+    this.sessionEventId = null;
+    this.go('COUNTDOWN', now);
   }
 
   private startRating(now: number, sessionId: string | null) {

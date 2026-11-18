@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { Machine, TIMING, TouchClassifier, pickTargets, quantizeCm, roundScore, type Action, type Touch } from '../src/game.ts';
+import { Machine, ROUNDS, TIMING, TouchClassifier, pickTargets, quantizeCm, resultTier, roundScore, type Action, type Touch } from '../src/game.ts';
 import { gameEventSchema, ratingEventSchema, settingsSchema } from '../src/schema.ts';
 
 const cases = readFileSync(new URL('./scoring_cases.txt', import.meta.url), 'utf8')
@@ -11,22 +11,33 @@ describe('roundScore', () => {
   it.each(cases)('target %s, terukur %s → %s', (t, m, want) => {
     expect(roundScore(m === '-' ? null : Number(m), Number(t))).toBe(Number(want));
   });
-  it('perfect, deviasi, clamp, timeout', () => {
+  it('perfect, zona 100, deviasi, clamp, tanpa bacaan', () => {
     expect(roundScore(20, 20)).toBe(100);
-    expect(roundScore(quantizeCm(20.34), 20)).toBe(97);
+    expect(roundScore(quantizeCm(20.34), 20)).toBe(100);
+    expect(roundScore(quantizeCm(19.66), 20)).toBe(97);
     expect(roundScore(45, 20)).toBe(0);
     expect(roundScore(null, 20)).toBe(0);
     expect(roundScore(Number.NaN, 20)).toBe(0);
   });
 });
 
+describe('resultTier', () => {
+  it('batas label MASTER/PRO/NICE/COBA LAGI', () => {
+    expect([500, 450, 449, 330, 329, 170, 169, 0].map(resultTier)).toEqual([3, 3, 2, 2, 1, 1, 0, 0]);
+  });
+});
+
 describe('pickTargets', () => {
-  it('menghasilkan 3 target bulat berbeda dalam rentang', () => {
+  const cfg = { targetMinCm: 10, targetMaxCm: 14, countdownMs: 3000, roundMs: 10000 };
+  it('menghasilkan ROUNDS target bulat berbeda dalam rentang', () => {
     for (let i = 0; i < 200; i++) {
-      const t = pickTargets({ targetMinCm: 10, targetMaxCm: 14, countdownMs: 3000, roundMs: 10000 }, (n) => Math.floor(Math.random() * n));
-      expect(new Set(t).size).toBe(3);
+      const t = pickTargets(cfg, (n) => Math.floor(Math.random() * n));
+      expect(new Set(t).size).toBe(ROUNDS);
       t.forEach((x) => expect(x >= 10 && x <= 14 && Number.isInteger(x)).toBe(true));
     }
+  });
+  it('10 target di rentang 5 nilai: boleh berulang, tidak macet', () => {
+    expect(pickTargets(cfg, (n) => Math.floor(Math.random() * n), 10)).toHaveLength(10);
   });
 });
 
@@ -76,10 +87,10 @@ describe('TouchClassifier', () => {
 
 function setup(cfg = { targetMinCm: 10, targetMaxCm: 30, countdownMs: 3000, roundMs: 10000 }) {
   let seq = 0;
-  const targets = [18, 25, 12];
+  const targets = [18, 25, 12, 22, 15];
   let k = 0;
   // rand deterministik: kembalikan offset yang menghasilkan target di atas
-  const m = new Machine(cfg, () => targets[k++ % 3] - cfg.targetMinCm, () => `TEST-evt-${++seq}0000`);
+  const m = new Machine(cfg, () => targets[k++ % targets.length] - cfg.targetMinCm, () => `TEST-evt-${++seq}0000`);
   let now = 1000;
   const acts: Action[] = [];
   const api = {
@@ -90,37 +101,52 @@ function setup(cfg = { targetMinCm: 10, targetMaxCm: 30, countdownMs: 3000, roun
     wait(ms: number) { const end = now + ms; while (now < end) { now = Math.min(end, now + 50); acts.push(...m.tick(now)); } },
     data() { return acts.filter((a) => a.type !== 'beep'); },
     beeps() { return acts.filter((a) => a.type === 'beep').map((a) => (a as { beep: string }).beep); },
+    /** Menu → Main ProxiRush → READY → TAHAN → selesai di ronde asli 1 yang sedang berjalan. */
+    play() {
+      api.press('SHORT'); api.press('LONG'); api.press('LONG');
+      api.wait(3000);
+    },
   };
   return api;
 }
 
 describe('Machine (FSM)', () => {
-  it('alur penuh: 3 ronde → hasil → rating tertaut ke sesi', () => {
+  it('alur penuh: Main ProxiRush → READY → 5 ronde langsung dinilai → hasil → rating tertaut ke sesi', () => {
     const s = setup();
     s.press('SHORT');
     expect(s.m.state).toBe('MENU');
     s.press('LONG');
-    expect(s.m.state).toBe('READY');
+    expect(s.m.snapshot(s.now)).toMatchObject({ state: 'READY', practice: false });
     s.press('LONG');
-    expect(s.m.state).toBe('COUNTDOWN');
+    expect(s.m.snapshot(s.now)).toMatchObject({ state: 'COUNTDOWN', practice: false, round: 1, results: [] });
     s.wait(3000);
     expect(s.m.state).toBe('ROUND_ACTIVE');
     expect(s.beeps().filter((b) => b === 'tick')).toHaveLength(3);
     expect(s.m.snapshot(s.now)).toMatchObject({ round: 1, targetCm: 18 });
     s.wait(1500);
     s.press('SHORT', 18.04);
-    expect(s.m.state).toBe('ROUND_RESULT');
     expect(s.m.results[0]).toEqual({ round: 1, targetCm: 18, measuredCm: 18, score: 100, lockMs: 1500 });
+    s.m.reading(30); // di luar ronde aktif: diabaikan
     s.wait(TIMING.roundResultMs + 3000);
-    s.press('SHORT', 26.26); // 26.3 vs 25 → 87
-    s.wait(TIMING.roundResultMs + 3000);
-    s.wait(10000); // ronde 3 habis waktu
+    for (const cm of [26.2, 90, 26.3, 26.4, 26.1, 26.3]) s.m.reading(cm); // 5 terakhir → median 26,3
+    s.wait(10000);
+    expect(s.m.results[1]).toEqual({ round: 2, targetCm: 25, measuredCm: 26.3, score: 87, lockMs: 10000 });
+    s.wait(TIMING.roundResultMs + 3000 + 10000); // ronde 3: tidak ada bacaan sama sekali
     expect(s.m.results[2]).toMatchObject({ measuredCm: null, score: 0, lockMs: null });
+    expect(s.data()).toEqual([]); // data baru dikirim setelah ronde 5
+    s.wait(TIMING.roundResultMs + 3000);
+    expect(s.m.targets).toEqual([18, 25, 12, 22, 15]);
+    s.wait(500); s.press('SHORT', 22.9); s.wait(TIMING.roundResultMs + 3000); // zona 100
+    s.m.reading(15.4);
+    s.wait(10000); // ronde 5: tidak menyentuh, satu bacaan valid cukup
+    expect(s.m.results.map((r) => r.score)).toEqual([100, 87, 0, 100, 100]);
     s.wait(TIMING.roundResultMs);
     expect(s.m.state).toBe('GAME_RESULT');
+    expect(s.beeps().at(-1)).toBe('finish');
     const [game] = s.data();
-    expect(game).toMatchObject({ type: 'game', totalScore: 187 });
-    expect(s.m.snapshot(s.now).totalScore).toBe(187);
+    expect(game).toMatchObject({ type: 'game', totalScore: 387 });
+    expect((game as { rounds: unknown[] }).rounds).toHaveLength(ROUNDS);
+    expect(s.m.snapshot(s.now).totalScore).toBe(387);
     s.press('SHORT');
     expect(s.m.state).toBe('RATING_OFFER');
     s.press('LONG');
@@ -138,20 +164,23 @@ describe('Machine (FSM)', () => {
     expect(s.m.state).toBe('IDLE');
   });
 
-  it('event game yang dihasilkan lolos validasi backend', () => {
+  it('event game yang dihasilkan lolos validasi backend (termasuk kunci otomatis)', () => {
     const s = setup();
-    s.press('SHORT'); s.press('LONG'); s.press('LONG'); s.wait(3000);
+    s.play();
     s.press('SHORT', 17.2); s.wait(TIMING.roundResultMs + 3000);
     s.press('SHORT', 33.33); s.wait(TIMING.roundResultMs + 3000);
+    s.m.reading(12.3); s.wait(10000 + TIMING.roundResultMs + 3000);
+    s.wait(10000 + TIMING.roundResultMs + 3000);
     s.press('SHORT', 12); s.wait(TIMING.roundResultMs);
     const g = s.data()[0] as Extract<Action, { type: 'game' }>;
+    expect(g.rounds.map((r) => r.lockMs === null)).toEqual([false, false, false, true, false]);
     const r = gameEventSchema.safeParse({ v: 1, deviceId: 'SIM-01', mode: 'demo', ageMs: 0, ...g, type: 'game' });
     expect(r.success, JSON.stringify(r.error?.issues)).toBe(true);
   });
 
   it('sensor invalid saat lock: tetap di ronde, beri notice, tanpa jarak palsu', () => {
     const s = setup();
-    s.press('SHORT'); s.press('LONG'); s.press('LONG'); s.wait(3000);
+    s.play();
     s.press('SHORT', null);
     expect(s.m.state).toBe('ROUND_ACTIVE');
     expect(s.m.notice).toBe('NO_READING');
@@ -163,6 +192,7 @@ describe('Machine (FSM)', () => {
   it('input setelah batas waktu ronde diabaikan; input saat countdown diabaikan', () => {
     const s = setup();
     s.press('SHORT'); s.press('LONG'); s.press('LONG');
+    expect(s.m.state).toBe('COUNTDOWN');
     s.press('SHORT', 20);
     expect(s.m.state).toBe('COUNTDOWN');
     s.wait(3000);
@@ -171,14 +201,30 @@ describe('Machine (FSM)', () => {
     expect(s.m.state).toBe('ROUND_ACTIVE');
   });
 
-  it('mode latihan tidak menghasilkan event game', () => {
+  it('menu Latihan tidak menghasilkan event game; skor rendah → melodi sedih', () => {
     const s = setup();
     s.press('SHORT'); s.press('SHORT'); s.press('LONG');
     expect(s.m.practice).toBe(true);
+    expect(s.m.state).toBe('READY');
     s.press('LONG'); s.wait(3000);
-    for (let i = 0; i < 3; i++) { s.press('SHORT', 20); s.wait(TIMING.roundResultMs + 3000); }
+    for (let i = 0; i < ROUNDS; i++) { s.press('SHORT', 40); s.wait(TIMING.roundResultMs + 3000); }
     expect(s.m.state).toBe('GAME_RESULT');
     expect(s.data()).toEqual([]);
+    expect(s.beeps().at(-1)).toBe('finishLow');
+  });
+
+  it('READY ProxiRush: diam 20 detik → IDLE, masuk lagi ke menu utama; skor sedang → melodi sedang', () => {
+    const s = setup();
+    s.press('SHORT'); s.press('LONG');
+    s.wait(TIMING.menuTimeoutMs);
+    expect(s.m.state).toBe('IDLE');
+    s.press('SHORT');
+    expect(s.m.snapshot(s.now)).toMatchObject({ state: 'MENU', menuIndex: 0 });
+    const t = setup();
+    t.play();
+    for (let i = 0; i < ROUNDS; i++) { t.press('SHORT', i < 2 ? t.m.targets[t.m.round] : 2); t.wait(TIMING.roundResultMs + 3000); }
+    expect(t.m.results.reduce((a, r) => a + r.score, 0)).toBe(200);
+    expect(t.beeps().at(-1)).toBe('finishMid');
   });
 
   it('rating langsung dari menu tanpa sesi; bintang berputar 1→5→1', () => {
@@ -197,8 +243,8 @@ describe('Machine (FSM)', () => {
 
   it('skip dan timeout rating tidak membuat data', () => {
     const s = setup();
-    s.press('SHORT'); s.press('LONG'); s.press('LONG'); s.wait(3000);
-    for (let i = 0; i < 3; i++) { s.press('SHORT', 20); s.wait(TIMING.roundResultMs + 3000); }
+    s.play();
+    for (let i = 0; i < ROUNDS; i++) { s.press('SHORT', 20); s.wait(TIMING.roundResultMs + 3000); }
     s.wait(TIMING.gameResultMs);
     expect(s.m.state).toBe('RATING_OFFER');
     s.press('SHORT');

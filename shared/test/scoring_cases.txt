@@ -1,18 +1,29 @@
-# target_cm measured_cm expected_score   ("-" = timeout tanpa lock)
+# target_cm measured_cm expected_score   ("-" = tidak ada bacaan valid sepanjang ronde)
 # Dibaca oleh shared/test/game.test.ts DAN firmware/test/test_logic.cpp agar skor identik lintas bahasa.
+# Zona 100: target s.d. target + 0,9 cm. Selain itu 100 - |a10 - t10| (persepuluhan cm), minimal 0.
+# Tabel prompt-update §4 (target 27):
+27 27.0 100
+27 27.9 100
+27 28.0 90
+27 26.9 99
+27 25.0 80
+# Kasus lain:
 20 20.0 100
-20 20.3 97
+20 20.3 100
 20 19.7 97
 20 21.5 85
 30 25.0 50
 20 30.0 0
 20 35.0 0
 20 2.0 0
-10 10.1 99
+10 10.1 100
+10 9.9 99
 25 24.5 95
-18 18.4 96
-12 12.9 91
+18 18.4 100
+18 18.94 100
+18 18.96 90
+12 12.9 100
 30 29.9 99
-15 15.6 94
+15 15.6 100
 22 21.1 91
 20 - 0

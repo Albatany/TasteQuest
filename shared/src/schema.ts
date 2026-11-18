@@ -34,7 +34,7 @@ export const gameEventSchema = z.object({
   const targets = new Set(g.rounds.map((r) => r.targetCm));
   if (targets.size !== ROUNDS) ctx.addIssue({ code: 'custom', message: 'Target tiap ronde harus berbeda', path: ['rounds'] });
   g.rounds.forEach((r, i) => {
-    if (r.round !== i + 1) ctx.addIssue({ code: 'custom', message: 'Urutan ronde harus 1..3', path: ['rounds', i, 'round'] });
+    if (r.round !== i + 1) ctx.addIssue({ code: 'custom', message: `Urutan ronde harus 1..${ROUNDS}`, path: ['rounds', i, 'round'] });
     if ((r.measuredCm === null) !== (r.lockMs === null)) ctx.addIssue({ code: 'custom', message: 'measuredCm dan lockMs harus sama-sama null saat timeout', path: ['rounds', i] });
     if (r.lockMs !== null && r.lockMs > g.roundMs) ctx.addIssue({ code: 'custom', message: 'lockMs melebihi durasi ronde', path: ['rounds', i, 'lockMs'] });
     if (r.score !== roundScore(r.measuredCm, r.targetCm)) ctx.addIssue({ code: 'custom', message: 'Skor ronde tidak sesuai rumus', path: ['rounds', i, 'score'] });
